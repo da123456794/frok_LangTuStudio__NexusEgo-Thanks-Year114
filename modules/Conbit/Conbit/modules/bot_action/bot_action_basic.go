@@ -1,0 +1,63 @@
+package bot_action
+
+import (
+	"time"
+
+	"github.com/LangTuStudio/Conbit/Conbit"
+	"github.com/LangTuStudio/Conbit/Conbit/chunks/define"
+	"github.com/LangTuStudio/Conbit/Conbit/supported_nbt_data"
+	"github.com/LangTuStudio/Conbit/minecraft/protocol"
+	"github.com/LangTuStudio/Conbit/minecraft/protocol/packet"
+
+	"github.com/go-gl/mathgl/mgl32"
+)
+
+type BotActionSimple struct {
+	uq   Conbit.MicroUQHolder
+	ctrl Conbit.InteractCore
+}
+
+func NewBotActionSimple(uq Conbit.MicroUQHolder, ctrl Conbit.InteractCore) *BotActionSimple {
+	return &BotActionSimple{
+		uq:   uq,
+		ctrl: ctrl,
+	}
+}
+
+func (b *BotActionSimple) SetStructureBlockData(pos define.CubePos, settings *supported_nbt_data.StructureBlockSupportedData) {
+	updatePacket := &packet.StructureBlockUpdate{
+		Position:           protocol.BlockPos{int32(pos[0]), int32(pos[1]), int32(pos[2])},
+		StructureName:      settings.StructureName,
+		DataField:          settings.DataField,
+		IncludePlayers:     settings.IncludePlayers != 0,
+		ShowBoundingBox:    settings.ShowBoundingBox != 0,
+		StructureBlockType: settings.StructureBlockType,
+		Settings: protocol.StructureSettings{
+			PaletteName:               "default",
+			IgnoreEntities:            settings.IgnoreEntities != 0,
+			IgnoreBlocks:              settings.IgnoreBlocks != 0,
+			AllowNonTickingChunks:     true,
+			Size:                      protocol.BlockPos{settings.XStructureSize, settings.YStructureSize, settings.ZStructureSize},
+			Offset:                    protocol.BlockPos{settings.XStructureOffset, settings.YStructureOffset, settings.ZStructureOffset},
+			LastEditingPlayerUniqueID: b.uq.GetBotUniqueID(),
+			Rotation:                  settings.Rotation,
+			Mirror:                    settings.Mirror,
+			AnimationMode:             settings.AnimationMode,
+			AnimationDuration:         settings.AnimationDuration,
+			Integrity:                 settings.Integrity,
+			Seed:                      uint32(settings.Seed),
+			Pivot: mgl32.Vec3{
+				(float32(settings.XStructureSize) - 1) / 2,
+				(float32(settings.YStructureSize) - 1) / 2,
+				(float32(settings.ZStructureSize) - 1) / 2,
+			},
+		},
+		RedstoneSaveMode: settings.RedstoneSaveMode,
+		ShouldTrigger:    false,
+	}
+	b.ctrl.SendPacket(updatePacket)
+}
+
+func (s *BotActionSimple) SleepTick(ticks int) {
+	time.Sleep(time.Millisecond * 50 * time.Duration(ticks))
+}

@@ -1,0 +1,209 @@
+package bot_action
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/LangTuStudio/Conbit/Conbit"
+	"github.com/LangTuStudio/Conbit/Conbit/chunks/define"
+	"github.com/LangTuStudio/Conbit/Conbit/supported_nbt_data/supported_item"
+	"github.com/LangTuStudio/Conbit/minecraft/protocol/packet"
+	"github.com/LangTuStudio/Conbit/utils/async_wrapper"
+	"github.com/LangTuStudio/Conbit/utils/string_wrapper"
+
+	"github.com/google/uuid"
+)
+
+type CommandHelper struct {
+	Conbit.CmdSender
+	uq Conbit.MicroUQHolder
+	// botExecutePrefix string
+}
+
+func NewCommandHelper(sender Conbit.CmdSender, uq Conbit.MicroUQHolder) Conbit.CommandHelper {
+	return &CommandHelper{
+		CmdSender: sender,
+		uq:        uq,
+		// botExecutePrefix: fmt.Sprintf("execute as @a[name=\"%v\"] run", uq.GetBotName()),
+	}
+}
+
+type woCmd struct {
+	cmd string
+	Conbit.CmdSender
+}
+
+func (c *woCmd) Send() {
+	// fmt.Println(c.cmd)
+	c.CmdSender.SendWOCmd(c.cmd)
+}
+
+type wsCmd struct {
+	cmd string
+	Conbit.CmdSender
+}
+
+func (c *wsCmd) Send() {
+	c.CmdSender.SendWebSocketCmdOmitResponse(c.cmd)
+}
+
+func (c *wsCmd) SendAndGetResponse() async_wrapper.AsyncResult[*packet.CommandOutput] {
+	return c.CmdSender.SendWebSocketCmdNeedResponse(c.cmd)
+}
+
+type playerCmd struct {
+	cmd string
+	Conbit.CmdSender
+}
+
+func (c *playerCmd) Send() {
+	c.CmdSender.SendPlayerCmdOmitResponse(c.cmd)
+}
+
+func (c *playerCmd) SendAndGetResponse() async_wrapper.AsyncResult[*packet.CommandOutput] {
+	return c.CmdSender.SendPlayerCmdNeedResponse(c.cmd)
+}
+
+type generalCmd struct {
+	cmd string
+	Conbit.CmdSender
+}
+
+func (c *generalCmd) Send() {
+	(&woCmd{c.cmd, c.CmdSender}).Send()
+}
+
+func (c *generalCmd) AsWebSocket() Conbit.CmdCanGetResponse {
+	return &wsCmd{c.cmd, c.CmdSender}
+}
+
+func (c *generalCmd) AsPlayer() Conbit.CmdCanGetResponse {
+	return &playerCmd{c.cmd, c.CmdSender}
+}
+
+func (c *CommandHelper) constructWOCommand(cmd string) Conbit.CmdCannotGetResponse {
+	return &woCmd{cmd, c.CmdSender}
+}
+
+func (c *CommandHelper) ConstructDimensionLimitedWOCommand(cmd string) Conbit.CmdCannotGetResponse {
+	dimension, _ := c.uq.GetBotDimension()
+	if dimension == 0 {
+		return &woCmd{cmd, c.CmdSender}
+	} else {
+		return &wsCmd{cmd, c.CmdSender}
+	}
+}
+
+func (c *CommandHelper) constructWebSocketCommand(cmd string) Conbit.CmdCanGetResponse {
+	return &wsCmd{cmd, c.CmdSender}
+}
+
+func (c *CommandHelper) constructPlayerCommand(cmd string) Conbit.CmdCanGetResponse {
+	return &playerCmd{cmd, c.CmdSender}
+}
+
+func (c *CommandHelper) ConstructDimensionLimitedGeneralCommand(cmd string) Conbit.GeneralCommand {
+	dimension, _ := c.uq.GetBotDimension()
+	if dimension != 0 {
+		if dimension == 1 {
+			cmd = "execute in nether run " + cmd
+		} else if dimension == 2 {
+			cmd = "execute in the_end run " + cmd
+		} else {
+			cmd = fmt.Sprintf("execute in %v run ", dimension) + cmd
+		}
+	}
+	// fmt.Println(cmd)
+	return &generalCmd{cmd, c.CmdSender}
+}
+
+func (c *CommandHelper) ConstructGeneralCommand(cmd string) Conbit.GeneralCommand {
+	return &generalCmd{cmd, c.CmdSender}
+}
+
+func (c *CommandHelper) ReplaceHotBarItemCmd(slotID int32, item string) Conbit.CmdCanGetResponse {
+	return c.constructWebSocketCommand(fmt.Sprintf("replaceitem entity @s slot.hotbar %v %v", slotID, item))
+}
+
+// 部分物品无法在网易用原物品名生成
+func convertItemToSpawnConfig(itemName string, value int32) (string, int32) {
+	if itemName == "minecraft:npc_spawn_egg" || itemName == "npc_spawn_egg" {
+		return "spawn_egg", 51
+	}
+	return itemName, value
+}
+
+func (c *CommandHelper) ReplaceBotHotBarItemFullCmd(slotID int32, itemName string, count uint8, value int32, components *supported_item.ItemPropsInGiveOrReplace) Conbit.CmdCanGetResponse {
+	componentsStr := ""
+	if components != nil {
+		if components.ItemLock != "" {
+			fmt.Printf("warning: bot cannot drop or move item when item lock, this makes no sense, so item lock option is wiped\n")
+			components.ItemLock = ""
+		}
+		itemName = strings.TrimSpace(itemName)
+		if strings.Contains(itemName, " ") {
+			itemName = strings.Split(itemName, " ")[0]
+		}
+		componentsStr = (components).CmdString()
+	}
+	itemName, value = convertItemToSpawnConfig(itemName, value)
+	return c.constructWebSocketCommand(fmt.Sprintf("/replaceitem entity @s slot.hotbar %v destroy %v %v %v "+componentsStr, slotID, itemName, count, value))
+}
+
+func (c *CommandHelper) ReplaceContainerItemFullCmd(pos define.CubePos, slotID int32, itemName string, count uint8, value int32, components *supported_item.ItemPropsInGiveOrReplace) Conbit.CmdCanGetResponse {
+	itemName = strings.TrimSpace(itemName)
+	if strings.Contains(itemName, " ") {
+		itemName = strings.Split(itemName, " ")[0]
+	}
+	componentsStr := (components).CmdString()
+	itemName, value = convertItemToSpawnConfig(itemName, value)
+	return c.constructWebSocketCommand(fmt.Sprintf("/replaceitem block %v %v %v slot.container %v destroy %v %v %v "+componentsStr, pos.X(), pos.Y(), pos.Z(), slotID, itemName, count, value))
+}
+
+func (c *CommandHelper) ReplaceContainerBlockItemCmd(pos define.CubePos, slotID int32, item string) Conbit.CmdCanGetResponse {
+	return c.constructWebSocketCommand(fmt.Sprintf("replaceitem block %v %v %v slot.container %v %v", pos.X(), pos.Y(), pos.Z(), slotID, item))
+}
+
+func (c *CommandHelper) BackupStructureWithGivenNameCmd(start define.CubePos, size define.CubePos, name string) Conbit.CmdCanGetResponse {
+	end := start.Add(size).Sub(define.CubePos{1, 1, 1})
+	return c.constructWebSocketCommand(fmt.Sprintf(
+		"structure save \"%v\" %v %v %v %v %v %v",
+		name,
+		start.X(), start.Y(), start.Z(),
+		end.X(), end.Y(), end.Z(),
+	))
+}
+
+func (c *CommandHelper) RevertStructureWithGivenNameCmd(start define.CubePos, name string) Conbit.CmdCanGetResponse {
+	return c.constructWebSocketCommand(fmt.Sprintf(
+		"structure load \"%v\" %v %v %v",
+		name,
+		start.X(), start.Y(), start.Z(),
+	))
+}
+
+func (c *CommandHelper) GenAutoUnfilteredUUID() string {
+	return string_wrapper.ReplaceWithUnfilteredLetter(uuid.New().String())
+}
+
+func (c *CommandHelper) BackupStructureWithAutoNameCmd(start define.CubePos, size define.CubePos) (name string, cmd Conbit.CmdCanGetResponse) {
+	name = c.GenAutoUnfilteredUUID()
+	return name, c.BackupStructureWithGivenNameCmd(start, size, name)
+}
+
+func (c *CommandHelper) SetBlockCmd(pos define.CubePos, blockString string) Conbit.GeneralCommand {
+	return c.ConstructDimensionLimitedGeneralCommand(fmt.Sprintf("setblock %v %v %v %v", pos.X(), pos.Y(), pos.Z(), blockString))
+}
+
+func (c *CommandHelper) SetBlockRelativeCmd(pos define.CubePos, blockString string) Conbit.GeneralCommand {
+	return c.ConstructDimensionLimitedGeneralCommand(fmt.Sprintf("setblock ~%v ~%v ~%v %v", pos.X(), pos.Y(), pos.Z(), blockString))
+}
+
+func (c *CommandHelper) FillBlocksWithRangeCmd(startPos define.CubePos, endPos define.CubePos, blockString string) Conbit.GeneralCommand {
+	return c.ConstructDimensionLimitedGeneralCommand(fmt.Sprintf("fill %v %v %v %v %v %v %v", startPos.X(), startPos.Y(), startPos.Z(), endPos.X(), endPos.Y(), endPos.Z(), blockString))
+}
+
+func (c *CommandHelper) FillBlocksWithSizeCmd(startPos define.CubePos, size define.CubePos, blockString string) Conbit.GeneralCommand {
+	endPos := startPos.Add(size).Sub(define.CubePos{1, 1, 1})
+	return c.ConstructDimensionLimitedGeneralCommand(fmt.Sprintf("fill %v %v %v %v %v %v %v", startPos.X(), startPos.Y(), startPos.Z(), endPos.X(), endPos.Y(), endPos.Z(), blockString))
+}

@@ -1,0 +1,122 @@
+package uqholder
+
+import (
+	"bytes"
+
+	"github.com/LangTuStudio/Conbit/Conbit"
+	"github.com/LangTuStudio/Conbit/Conbit/encoding/binary_read_write"
+	"github.com/LangTuStudio/Conbit/Conbit/encoding/little_endian"
+	"github.com/LangTuStudio/Conbit/Conbit/minecraft_conn"
+	"github.com/LangTuStudio/Conbit/minecraft/protocol/packet"
+)
+
+func init() {
+	if false {
+		func(Conbit.BotBasicInfoHolder) {}(&BotBasicInfoHolder{})
+	}
+}
+
+type BotBasicInfoHolder struct {
+	BotName      string
+	BotRuntimeID uint64
+	BotUniqueID  int64
+	BotIdentity  string
+	BotUID       int64
+}
+
+func (b *BotBasicInfoHolder) Marshal() (data []byte, err error) {
+	basicWriter := bytes.NewBuffer(nil)
+	writer := binary_read_write.WrapBinaryWriter(basicWriter)
+	err = little_endian.WriteString(writer, b.BotName)
+	if err != nil {
+		return nil, err
+	}
+	err = little_endian.WriteUint64(writer, b.BotRuntimeID)
+	if err != nil {
+		return nil, err
+	}
+	err = little_endian.WriteInt64(writer, b.BotUniqueID)
+	if err != nil {
+		return nil, err
+	}
+	err = little_endian.WriteString(writer, b.BotIdentity)
+	if err != nil {
+		return nil, err
+	}
+	err = little_endian.WriteInt64(writer, b.BotUID)
+	if err != nil {
+		return nil, err
+	}
+	return basicWriter.Bytes(), err
+}
+
+func (b *BotBasicInfoHolder) Unmarshal(data []byte) (err error) {
+	basicReader := bytes.NewReader(data)
+	reader := binary_read_write.WrapBinaryReader(basicReader)
+	b.BotName, err = little_endian.String(reader)
+	if err != nil {
+		return err
+	}
+	b.BotRuntimeID, err = little_endian.Uint64(reader)
+	if err != nil {
+		return err
+	}
+	b.BotUniqueID, err = little_endian.Int64(reader)
+	if err != nil {
+		return err
+	}
+	b.BotIdentity, err = little_endian.String(reader)
+	if err != nil {
+		return err
+	}
+	b.BotUID, err = little_endian.Int64(reader)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (b *BotBasicInfoHolder) UpdateFromPacket(packet packet.Packet) {
+}
+
+func (b *BotBasicInfoHolder) GetBotName() string {
+	return b.BotName
+}
+
+func (b *BotBasicInfoHolder) GetBotRuntimeID() uint64 {
+	return b.BotRuntimeID
+}
+
+func (b *BotBasicInfoHolder) GetBotUniqueID() int64 {
+	return b.BotUniqueID
+}
+
+func (b *BotBasicInfoHolder) GetBotIdentity() string {
+	return b.BotIdentity
+}
+
+func (b *BotBasicInfoHolder) GetBotUUIDStr() string {
+	return b.BotIdentity
+}
+
+func (b *BotBasicInfoHolder) GetBotUID() int64 {
+	return b.BotUID
+}
+
+func NewBotInfoHolder(conn minecraft_conn.Conn) Conbit.BotBasicInfoHolder {
+	h := &BotBasicInfoHolder{}
+	gd := conn.GameData()
+	h.BotRuntimeID = gd.EntityRuntimeID
+	h.BotUniqueID = gd.EntityUniqueID
+	h.BotName = conn.IdentityData().DisplayName
+	h.BotIdentity = conn.IdentityData().Identity
+	h.BotUID = conn.IdentityData().Uid
+	if DEBUG {
+		println("BotRuntimeID:", h.BotRuntimeID)
+		println("BotUniqueID:", h.BotUniqueID)
+		println("BotName:", h.BotName)
+		println("BotIdentity:", h.BotIdentity)
+		println("BotUID:", h.BotUID)
+	}
+	return h
+}
