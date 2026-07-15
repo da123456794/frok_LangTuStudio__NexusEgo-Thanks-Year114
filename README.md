@@ -358,5 +358,3 @@ go build -o NexusEgo.exe ./cmd/nexusego
 - `modules/WaterStructure/LICENSE`
 - `utils/LICENSE`
 
-#   N e x u s E g o - T h a n k s - Y e a r 1 1 4  
- 
